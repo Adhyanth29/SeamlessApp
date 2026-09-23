@@ -61,7 +61,8 @@ internal sealed class PairingForm : Form
 
         var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, Margin = new Padding(0, 12, 0, 0) };
         var copy = new Button { Text = "Copy link", AutoSize = true };
-        copy.Click += (_, _) => ClipboardAccess.TrySetText(_link.Text);
+        // The link contains the pairing key: keep it out of clipboard history / cloud sync.
+        copy.Click += (_, _) => ClipboardAccess.TrySetSecretText(_link.Text);
         var rotate = new Button { Text = "New key…", AutoSize = true };
         rotate.Click += (_, _) => RotateKey();
         var close = new Button { Text = "Close", AutoSize = true, DialogResult = DialogResult.Cancel };

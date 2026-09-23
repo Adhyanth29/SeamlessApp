@@ -21,6 +21,12 @@ It works over your local Wi-Fi with end-to-end encryption, with no cloud and no 
 
 The protocol is specified in [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
 Current status, known gaps and next steps are in [`PROGRESS.md`](PROGRESS.md).
+The security review is in [`docs/SECURITY.md`](docs/SECURITY.md).
+
+## Testing without devices
+`tests/interop/run.sh` builds the Windows app's real server code and the Android app's real client
+code for the desktop and runs them against each other over TCP (it needs the .NET 8 SDK, JDK 17+ and Gradle).
+It also runs in CI.
 
 ## Repository layout
 

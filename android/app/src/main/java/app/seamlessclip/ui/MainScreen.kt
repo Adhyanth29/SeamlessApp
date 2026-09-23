@@ -257,14 +257,15 @@ private fun ManagePairingCard(pcName: String, actions: MainActions) {
 }
 
 @Composable
-fun PairingConfirmDialog(info: PairingInfo, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+fun PairingConfirmDialog(info: PairingInfo, replacing: String?, onConfirm: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Pair with ${info.pcName}?") },
         text = {
+            val replaceWarning = replacing?.let { "\n\nThis replaces your current pairing with $it." }.orEmpty()
             Text(
                 "This phone will share its clipboard with the PC at ${info.hosts.joinToString(", ")} " +
-                    "(port ${info.port}). Only continue if this code came from your own PC."
+                    "(port ${info.port}). Only continue if this code came from your own PC." + replaceWarning
             )
         },
         confirmButton = { TextButton(onClick = onConfirm) { Text("Pair") } },

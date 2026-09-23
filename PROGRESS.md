@@ -4,11 +4,12 @@ _Last updated: 2026-09-23_
 
 This file is for picking the work back up in a later session. Read it first.
 
-## Status: v0.1 code-complete, **not yet compiled or run**
+## Status: v0.1 compiles, protocol verified end-to-end; not yet tried on real devices
 
-By request, nothing was built or executed locally in the first session. All code was written
-"blind", so expect some compile errors on the first CI run. The GitHub Actions workflows in
-`.github/workflows/` are the first thing to check.
+- CI is green: the Windows single-file exe builds, and the Android APK builds and passes its unit tests.
+- `tests/interop/run.sh` (also in CI) runs the **real** C# `SyncServer` against the **real** Kotlin
+  `SyncClient`/`SyncHub` over TCP: a unicode round trip, wrong-key rejection, and abuse resistance. All pass.
+- Security review done: see `docs/SECURITY.md` (7 issues fixed, remaining risks listed).
 
 ### Done
 - [x] Protocol spec: `docs/PROTOCOL.md` (TCP + length-prefixed frames, HKDF + AES-256-GCM, UDP beacon, QR pairing)
@@ -34,22 +35,28 @@ By request, nothing was built or executed locally in the first session. All code
 - [x] CI: Windows single-file exe + Android debug APK as build artifacts
 
 ### Next steps (in order)
-1. **Get CI green.** Fix any compile errors in both workflows. The Android build also runs the unit tests.
+1. **Decide on automatic phone → PC sync** (see "Automatic phone → PC" below) and build it.
 2. **Commit the Gradle wrapper.** Run `gradle wrapper --gradle-version 8.10.2` in `android/` and commit
    `gradlew`, `gradlew.bat` and `gradle/wrapper/gradle-wrapper.jar`, then switch CI to `./gradlew`.
-3. **Cross-platform protocol test.** Add a fixed test vector (known key and nonces → expected ciphertext)
-   to both a .NET test project and the Android unit tests, so the two implementations are proven to agree.
-   Also consider a small .NET console "fake phone" for testing the server without a device.
-4. **Manual end-to-end test** on the real Pixel and laptop: pairing, PC→phone while the phone is locked,
+3. **Manual end-to-end test** on the real Pixel and laptop: pairing, PC→phone while the phone is locked,
    every phone→PC entry point, IP change (beacon re-discovery), key rotation, firewall prompt.
-5. Proper app icon (.ico for Windows, launcher icon polish on Android).
+4. Proper app icon (.ico for Windows, launcher icon polish on Android).
 
 ### Known gaps / ideas for later
-- **Automatic phone → PC sync in the background.** Android 10+ blocks background clipboard reads.
-  Known workaround (used by apps like "Clipboard Sync"): grant `READ_LOGS` over ADB once
-  (`adb shell pm grant app.seamlessclip android.permission.READ_LOGS`), watch logcat for the
-  `ClipboardService` "Denying clipboard access" line, then briefly launch `ClipboardSendActivity`
-  to read the clipboard. This could be an opt-in "advanced mode".
+- **Automatic phone → PC sync in the background.** Android 10+ lets only the focused app or the
+  default keyboard read the clipboard. Options, best first:
+  1. *ADB-assisted "copy detector"* (the KDE Connect approach): a one-time
+     `adb shell pm grant app.seamlessclip android.permission.READ_LOGS` plus the "display over other
+     apps" permission. The service registers a clipboard listener; Android logs
+     `Denying clipboard access to app.seamlessclip` on every copy; the service sees that line in logcat
+     and flashes `ClipboardSendActivity` (~100 ms, invisible) to read and send the clip. No tap is needed.
+     Caveats to verify on the Pixel: Android 13+ may show a "allow access to device logs?" prompt, and
+     the grant survives reboots but not a reinstall.
+  2. *Shizuku* (wireless-debugging privileges, re-enabled after each reboot): read the clipboard as the
+     shell user. Needs research into whether shell may read the clipboard in the background on Android 15/16.
+  3. *Be the keyboard (IME)*: the default keyboard may read the clipboard freely. This is how
+     SwiftKey syncs clipboard with Windows, but you'd have to use our keyboard instead of Gboard.
+  4. *Accessibility service* spotting taps on "Copy", then flashing the reader activity. Heuristic, and misses Ctrl+C.
 - Images and files (the `mime` field is already in the protocol). Windows: `Clipboard.GetImage`. Android: a
   `FileProvider` content URI with `ClipData.newUri`.
 - A clip that fails to send mid-connection is dropped. Consider an ack plus retry.

@@ -260,10 +260,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void AddFirewallRule()
     {
-        // Program-scoped rule, restricted to the local subnet so the port isn't exposed beyond the LAN.
+        // Program-scoped rule, only on Private/Domain networks and only from the local subnet,
+        // so the port stays closed on public Wi-Fi.
         var exe = Environment.ProcessPath;
         var args = "advfirewall firewall add rule name=\"SeamlessClip\" dir=in action=allow " +
-                   $"program=\"{exe}\" enable=yes profile=any remoteip=localsubnet";
+                   $"program=\"{exe}\" enable=yes profile=private,domain remoteip=localsubnet";
         try
         {
             using var process = Process.Start(new ProcessStartInfo("netsh", args)

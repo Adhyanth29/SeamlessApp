@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Compiles the Windows app's real protocol + server code on any OS for interop testing. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>SeamlessClip.Interop</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../../windows/SeamlessClip/Protocol/*.cs" LinkBase="App/Protocol" />
+    <Compile Include="../../../windows/SeamlessClip/Net/SyncServer.cs" LinkBase="App/Net" />
+    <Compile Include="../../../windows/SeamlessClip/Net/ClientSession.cs" LinkBase="App/Net" />
+    <Compile Include="../../../windows/SeamlessClip/Log.cs" LinkBase="App" />
+    <Compile Include="../../../windows/SeamlessClip/AppSettings.cs" LinkBase="App" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
+</Project>

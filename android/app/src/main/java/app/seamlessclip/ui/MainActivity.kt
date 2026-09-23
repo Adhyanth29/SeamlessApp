@@ -33,6 +33,7 @@ class MainActivity : ComponentActivity() {
 
     private val pairedPcName = mutableStateOf<String?>(null)
     private val pendingPairing = mutableStateOf<PairingInfo?>(null)
+    private var pendingFromClipboard = false
     private val batteryUnrestricted = mutableStateOf(true)
 
     private val scanLauncher = registerForActivityResult(ScanContract()) { result ->
@@ -80,6 +81,7 @@ class MainActivity : ComponentActivity() {
                 pendingPairing.value?.let { info ->
                     PairingConfirmDialog(
                         info = info,
+                        replacing = pairingStore.load()?.takeIf { it.serverId != info.serverId }?.pcName,
                         onConfirm = { confirmPairing(info) },
                         onDismiss = { pendingPairing.value = null },
                     )
@@ -119,7 +121,12 @@ class MainActivity : ComponentActivity() {
 
     private fun pastePairingLink() {
         val text = readClipboard()
-        if (text.isNullOrBlank()) toast("Copy the pairing link from the PC first") else offerPairing(text)
+        if (text.isNullOrBlank()) {
+            toast("Copy the pairing link from the PC first")
+        } else {
+            offerPairing(text)
+            pendingFromClipboard = pendingPairing.value != null
+        }
     }
 
     /** Pairing links can arrive from untrusted places (any web page can fire a VIEW intent), so always confirm. */
@@ -129,11 +136,17 @@ class MainActivity : ComponentActivity() {
             toast("That isn't a SeamlessClip pairing code")
             return
         }
+        pendingFromClipboard = false
         pendingPairing.value = info
     }
 
     private fun confirmPairing(info: PairingInfo) {
         pendingPairing.value = null
+        if (pendingFromClipboard) {
+            // The link contains the pairing key; don't leave it on the clipboard (or sync it anywhere).
+            getSystemService(ClipboardManager::class.java).clearPrimaryClip()
+            pendingFromClipboard = false
+        }
         pairingStore.save(info)
         refreshPairing()
         SyncHub.onPairingChanged()

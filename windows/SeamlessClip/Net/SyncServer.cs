@@ -18,6 +18,10 @@ internal sealed class SyncServer : IDisposable
     private readonly Func<string> _pcName;
     private readonly Func<byte[]> _pairingKey;
     private readonly ConcurrentDictionary<Guid, ClientSession> _sessions = new();
+
+    // Unauthenticated connections are cheap for an attacker on the LAN; cap them.
+    private const int MaxPendingHandshakes = 16;
+    private int _pendingHandshakes;
     private CancellationTokenSource? _cts;
     private TcpListener? _listener;
 
@@ -102,6 +106,14 @@ internal sealed class SyncServer : IDisposable
                 continue;
             }
 
+            if (Interlocked.Increment(ref _pendingHandshakes) > MaxPendingHandshakes)
+            {
+                Interlocked.Decrement(ref _pendingHandshakes);
+                Log.Warn($"Too many pending handshakes, dropping {client.Client.RemoteEndPoint}");
+                client.Dispose();
+                continue;
+            }
+
             _ = HandleClientAsync(client, ct);
         }
     }
@@ -117,10 +129,15 @@ internal sealed class SyncServer : IDisposable
 
             SessionCipher cipher;
             string device;
-            using (var handshakeCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
+            try
             {
+                using var handshakeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 handshakeCts.CancelAfter(ProtocolConstants.HandshakeTimeout);
                 (cipher, device) = await HandshakeAsync(stream, handshakeCts.Token).ConfigureAwait(false);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _pendingHandshakes);
             }
 
             session = new ClientSession(tcp, stream, cipher, device, remote);
@@ -193,14 +210,21 @@ internal sealed class SyncServer : IDisposable
             if (auth.Type != MessageTypes.Auth)
                 throw new InvalidDataException($"Expected auth, got '{auth.Type}'");
 
-            var device = string.IsNullOrWhiteSpace(auth.Device) ? "Phone" : auth.Device.Trim();
-            return (cipher, device.Length > 64 ? device[..64] : device);
+            return (cipher, SanitizeDeviceName(auth.Device));
         }
         catch
         {
             cipher.Dispose();
             throw;
         }
+    }
+
+    /// <summary>Device names end up in logs, menus and notifications: strip control characters and cap length.</summary>
+    private static string SanitizeDeviceName(string? raw)
+    {
+        var cleaned = new string((raw ?? "").Where(c => !char.IsControl(c)).ToArray()).Trim();
+        if (cleaned.Length == 0) return "Phone";
+        return cleaned.Length > 64 ? cleaned[..64] : cleaned;
     }
 
     private async Task ReceiveLoopAsync(ClientSession session, CancellationToken ct)

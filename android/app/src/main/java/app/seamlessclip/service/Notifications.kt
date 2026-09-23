@@ -75,15 +75,23 @@ object Notifications {
         return builder.build()
     }
 
-    fun received(context: Context, pcName: String, preview: String): Notification =
-        Notification.Builder(context, CHANNEL_RECEIVED)
+    /** Clipboard text can be a password or OTP: never show it on the lock screen. */
+    fun received(context: Context, pcName: String, preview: String): Notification {
+        val redacted = Notification.Builder(context, CHANNEL_RECEIVED)
+            .setSmallIcon(R.drawable.ic_stat_clip)
+            .setContentTitle("Copied from $pcName")
+            .build()
+        return Notification.Builder(context, CHANNEL_RECEIVED)
             .setSmallIcon(R.drawable.ic_stat_clip)
             .setContentTitle("Copied from $pcName")
             .setContentText(preview)
             .setContentIntent(openApp(context))
+            .setVisibility(Notification.VISIBILITY_PRIVATE)
+            .setPublicVersion(redacted)
             .setAutoCancel(true)
             .setTimeoutAfter(10_000)
             .build()
+    }
 
     private fun openApp(context: Context): PendingIntent = PendingIntent.getActivity(
         context, 0,

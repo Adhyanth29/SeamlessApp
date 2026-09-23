@@ -1,0 +1,26 @@
+name: Interop
+
+# Real C# SyncServer <-> real Kotlin SyncClient over localhost TCP (see tests/interop/run.sh).
+on:
+  push:
+    paths: ["windows/**", "android/app/src/main/java/app/seamlessclip/protocol/**", "android/app/src/main/java/app/seamlessclip/net/**", "tests/interop/**", ".github/workflows/interop.yml"]
+  pull_request:
+    paths: ["windows/**", "android/app/src/main/java/app/seamlessclip/protocol/**", "android/app/src/main/java/app/seamlessclip/net/**", "tests/interop/**", ".github/workflows/interop.yml"]
+  workflow_dispatch:
+
+jobs:
+  interop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+      - run: tests/interop/run.sh
