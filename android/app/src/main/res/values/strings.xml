@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">SeamlessClip</string>
+    <string name="share_label">Send to PC</string>
+    <string name="tile_label">Clipboard → PC</string>
+    <string name="channel_status">Connection status</string>
+    <string name="channel_status_desc">Ongoing notification while SeamlessClip keeps the connection to your PC open.</string>
+    <string name="channel_received">Received from PC</string>
+    <string name="channel_received_desc">Shown when text from your PC is placed on the clipboard.</string>
+</resources>
