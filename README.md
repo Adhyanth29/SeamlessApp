@@ -17,7 +17,7 @@ It works over your local Wi-Fi with end-to-end encryption, with no cloud and no 
 | Direction      | How it works |
 |----------------|--------------|
 | **PC → phone** | Automatic. Copy anything on the PC and it lands on the phone clipboard within a second, even with the phone locked. |
-| **Phone → PC** | One tap. Since Android 10, apps can't read the clipboard in the background, so after copying use any of these: **Share** in the clipboard pop-up → *Send to PC*, select text → ⋮ → *Send to PC*, the **Clipboard → PC** Quick Settings tile, or the notification's *Send clipboard to PC* button. |
+| **Phone → PC** | **Automatic on trusted devices** after a one-time USB setup (see below). Otherwise one tap: **Share** in the clipboard pop-up → *Send to PC*, select text → ⋮ → *Send to PC*, the **Clipboard → PC** Quick Settings tile, or the notification's *Send clipboard to PC* button. |
 
 The protocol is specified in [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
 Current status, known gaps and next steps are in [`PROGRESS.md`](PROGRESS.md).
@@ -67,6 +67,28 @@ From a terminal you need Gradle 8.10+: `cd android && gradle assembleDebug`
    Allow notifications when asked.
 4. Optional but recommended: tap **Allow background use** in the app so battery optimisation
    doesn't drop the connection, and add the **Clipboard → PC** Quick Settings tile.
+
+### Optional: automatic phone → PC (trusted devices)
+Android 10+ doesn't let background apps read the clipboard. With a one-time grant over USB,
+SeamlessClip can still notice every copy and send it with no tap:
+
+1. On the phone, enable **USB debugging**: *Settings › About phone* › tap *Build number* 7 times,
+   then *Settings › System › Developer options › USB debugging*.
+2. Connect the phone to the PC by USB and run `tools\enable-auto-send.ps1` (right-click › *Run with PowerShell*).
+   On macOS/Linux, run `tools/enable-auto-send.sh`. Both simply run:
+   ```
+   adb shell pm grant app.seamlessclip android.permission.READ_LOGS
+   adb shell appops set app.seamlessclip SYSTEM_ALERT_WINDOW allow
+   adb shell am force-stop app.seamlessclip
+   ```
+3. In the app, turn on **Send phone copies automatically**. If Android asks *"Allow access to all
+   device logs?"*, choose **Allow**. Android may ask again after a reboot, when you next open the app.
+
+How it works: Android writes a log line whenever it hides a copy from a background app. SeamlessClip
+watches for that line about itself, then adds an invisible 1×1 window for a split second (which
+counts as being "in focus"), reads the clipboard, and sends it. Android shows its usual
+"pasted from your clipboard" toast. Copies that password managers mark **sensitive** are skipped.
+Undo with `adb shell pm revoke app.seamlessclip android.permission.READ_LOGS`, or uninstall the app.
 
 Both devices need to be on the **same Wi-Fi/LAN**, and the Windows network profile should be
 *Private*. On guest or corporate networks that isolate clients, the devices can't see each other.

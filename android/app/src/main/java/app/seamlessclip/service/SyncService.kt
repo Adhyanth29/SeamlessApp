@@ -15,6 +15,9 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import app.seamlessclip.auto.AutoCopyStatus
+import app.seamlessclip.auto.AutoCopyWatcher
+import app.seamlessclip.auto.ClipboardGrabber
 import app.seamlessclip.data.AppPrefs
 import app.seamlessclip.data.PairingStore
 import app.seamlessclip.net.BeaconListener
@@ -27,6 +30,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 /**
@@ -40,6 +44,17 @@ class SyncService : Service() {
     private lateinit var clipboard: ClipboardManager
     private var clientJob: Job? = null
     private var beaconJob: Job? = null
+    private lateinit var autoCopy: AutoCopyWatcher
+    private var clipListenerRegistered = false
+
+    /** Last text auto-sent to the PC; avoids resending the same clip on repeated copy signals. */
+    private var lastAutoSent: String? = null
+
+    /**
+     * Must be registered for ClipboardService to log a denial for us on every copy (that log line is
+     * the background trigger). While our UI is in the foreground it is also called directly.
+     */
+    private val clipListener = ClipboardManager.OnPrimaryClipChangedListener { onCopyDetected() }
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) = SyncHub.requestReconnect()
@@ -51,16 +66,19 @@ class SyncService : Service() {
         pairingStore = PairingStore(this)
         clipboard = getSystemService(ClipboardManager::class.java)
         goForeground(SyncHub.state.value)
+        autoCopy = AutoCopyWatcher(this, scope, ::onCopyDetected)
+        reconcileAutoCopy(inForeground = false)
 
         runCatching { getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(networkCallback) }
             .onFailure { Log.w(TAG, "Could not register network callback", it) }
 
         scope.launch { SyncHub.pairingVersion.collect { restartClient() } }
         scope.launch {
-            SyncHub.state.collect { state ->
-                updateStatusNotification(state)
-                manageBeacon(state)
-            }
+            SyncHub.state.combine(AutoCopyWatcher.status) { state, auto -> state to auto }
+                .collect { (state, auto) ->
+                    updateStatusNotification(state, auto)
+                    manageBeacon(state)
+                }
         }
     }
 
@@ -73,6 +91,7 @@ class SyncService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_RECONNECT -> SyncHub.requestReconnect()
+            ACTION_AUTO_COPY -> reconcileAutoCopy(intent.getBooleanExtra(EXTRA_IN_FOREGROUND, false))
         }
         return START_STICKY
     }
@@ -90,6 +109,36 @@ class SyncService : Service() {
         clientJob = scope.launch { client.runForever() }
     }
 
+    private fun reconcileAutoCopy(inForeground: Boolean) {
+        val enabled = prefs.autoSendFromPhone
+        autoCopy.reconcile(enabled, inForeground)
+        val wantListener = enabled && autoCopy.isRunning
+        if (wantListener && !clipListenerRegistered) {
+            clipboard.addPrimaryClipChangedListener(clipListener)
+            clipListenerRegistered = true
+        } else if (!wantListener && clipListenerRegistered) {
+            clipboard.removePrimaryClipChangedListener(clipListener)
+            clipListenerRegistered = false
+        }
+    }
+
+    /** Something was copied somewhere on the phone: read it (briefly taking focus) and send it. */
+    private fun onCopyDetected() {
+        if (!prefs.autoSendFromPhone) return
+        ClipboardGrabber.grab(this) { clip ->
+            when {
+                clip == null -> Log.d(TAG, "Copy detected but clipboard could not be read")
+                clip.sensitive -> Log.i(TAG, "Not auto-sending a clip marked sensitive (e.g. password manager)")
+                clip.text == SyncHub.lastAppliedFromPc -> SyncHub.lastAppliedFromPc = null // echo of a PC clip
+                clip.text == lastAutoSent -> Unit
+                else -> {
+                    lastAutoSent = clip.text
+                    SyncHub.sendText(this, clip.text)
+                }
+            }
+        }
+    }
+
     private fun onClipFromPc(pcName: String, text: String) {
         val preview = SyncHub.preview(text)
         SyncHub.record(ClipEvent(outgoing = false, peer = pcName, preview = preview, timeMillis = System.currentTimeMillis()))
@@ -98,6 +147,7 @@ class SyncService : Service() {
         scope.launch {
             try {
                 SyncHub.lastAppliedFromPc = text
+                lastAutoSent = null // the phone clipboard changed, so a re-copy of the old text is new again
                 clipboard.setPrimaryClip(ClipData.newPlainText("From $pcName", text))
                 if (prefs.notifyOnReceive && canNotify()) {
                     getSystemService(NotificationManager::class.java)
@@ -138,15 +188,18 @@ class SyncService : Service() {
         }
     }
 
-    private fun updateStatusNotification(state: ConnectionState) {
+    private fun updateStatusNotification(state: ConnectionState, auto: AutoCopyStatus) {
         if (!canNotify()) return
-        getSystemService(NotificationManager::class.java).notify(Notifications.ID_STATUS, Notifications.status(this, state))
+        getSystemService(NotificationManager::class.java)
+            .notify(Notifications.ID_STATUS, Notifications.status(this, state, auto))
     }
 
     private fun canNotify() =
         ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
     override fun onDestroy() {
+        if (clipListenerRegistered) clipboard.removePrimaryClipChangedListener(clipListener)
+        autoCopy.reconcile(enabled = false, inForeground = false)
         scope.cancel()
         runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networkCallback) }
         if (SyncHub.state.value !is ConnectionState.NotPaired) SyncHub.setState(ConnectionState.Idle)
@@ -159,9 +212,15 @@ class SyncService : Service() {
         private const val TAG = "SyncService"
         const val ACTION_STOP = "app.seamlessclip.action.STOP"
         const val ACTION_RECONNECT = "app.seamlessclip.action.RECONNECT"
+        const val ACTION_AUTO_COPY = "app.seamlessclip.action.AUTO_COPY"
+        const val EXTRA_IN_FOREGROUND = "in_foreground"
 
-        fun start(context: Context, action: String? = null) {
-            val intent = Intent(context, SyncService::class.java).setAction(action)
+        /** Re-evaluate automatic sending; call with [inForeground] = true from a visible activity. */
+        fun refreshAutoCopy(context: Context, inForeground: Boolean) =
+            start(context, ACTION_AUTO_COPY) { putExtra(EXTRA_IN_FOREGROUND, inForeground) }
+
+        fun start(context: Context, action: String? = null, extras: Intent.() -> Unit = {}) {
+            val intent = Intent(context, SyncService::class.java).setAction(action).apply(extras)
             try {
                 ContextCompat.startForegroundService(context, intent)
             } catch (e: Exception) {

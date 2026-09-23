@@ -29,6 +29,16 @@ _2026-09-23: manual review of v0.1 plus automated interop/abuse tests (`tests/in
 | 6 | Low | A phone-supplied device name went unfiltered into logs and notifications (log-line forging). | Control characters are stripped and the name is capped at 64 characters. |
 | 7 | Low | A malicious pairing link could silently replace an existing pairing if the user tapped through. | The confirmation dialog warns when it would replace the current PC. |
 
+## Automatic phone → PC (opt-in)
+- `READ_LOGS` lets the app read **all** device logs, and some apps log sensitive data. SeamlessClip only
+  ever runs logcat filtered to `ClipboardService:E`, never stores or forwards log lines, and the feature
+  is off by default. Only grant it on your own device.
+- `SYSTEM_ALERT_WINDOW` is used only for a 1×1, invisible, non-touchable window that exists for
+  the few milliseconds needed to read the clipboard.
+- Clips marked sensitive (`ClipDescription.EXTRA_IS_SENSITIVE`, which password managers and Gboard set)
+  are never auto-sent.
+- Revoke: `adb shell pm revoke app.seamlessclip android.permission.READ_LOGS`.
+
 ## Accepted / open risks
 - **Any app on the phone can push text to the PC clipboard** through the exported share target
   (`ACTION_SEND` / `PROCESS_TEXT`). A malicious app could plant a command for you to paste into
@@ -42,4 +52,4 @@ _2026-09-23: manual review of v0.1 plus automated interop/abuse tests (`tests/in
   phone moves on to its other known addresses.
 - **Clipboard sync is powerful by nature.** Anything you copy on either device (unless the
   source app marks it private) lands on the other one. Password managers that set the Windows
-  privacy formats are respected. On Android there's no equivalent signal for us to read.
+  privacy formats are respected. On Android, automatic sending skips clips marked `IS_SENSITIVE`; manual sends always go through.

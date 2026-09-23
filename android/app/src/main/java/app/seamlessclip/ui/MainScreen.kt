@@ -34,6 +34,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.ui.text.font.FontFamily
+import app.seamlessclip.auto.AutoCopyStatus
+import app.seamlessclip.auto.AutoCopyWatcher
 import app.seamlessclip.data.AppPrefs
 import app.seamlessclip.data.PairingInfo
 import app.seamlessclip.net.ClipEvent
@@ -47,6 +51,15 @@ class MainActions(
     val onReconnect: () -> Unit,
     val onStop: () -> Unit,
     val onAllowBackground: () -> Unit,
+    val onAutoSendChanged: (Boolean) -> Unit,
+    val onOpenOverlaySettings: () -> Unit,
+)
+
+class AutoSendUi(
+    val enabled: Boolean,
+    val logPermission: Boolean,
+    val overlayPermission: Boolean,
+    val status: AutoCopyStatus,
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -57,6 +70,7 @@ fun MainScreen(
     pairedPcName: String?,
     prefs: AppPrefs,
     batteryUnrestricted: Boolean,
+    autoSend: AutoSendUi,
     actions: MainActions,
 ) {
     Scaffold(topBar = { TopAppBar(title = { Text("SeamlessClip") }) }) { padding ->
@@ -73,7 +87,8 @@ fun MainScreen(
                 item { SendCard(actions) }
                 if (!batteryUnrestricted) item { BatteryCard(actions) }
                 item { SettingsCard(prefs) }
-                item { HowToCard() }
+                item { AutoSendCard(autoSend, actions) }
+                if (!autoSend.enabled) item { HowToCard() }
                 if (history.isNotEmpty()) {
                     item { SectionTitle("Recent") }
                     items(history) { HistoryRow(it) }
@@ -183,6 +198,76 @@ private fun PrefSwitch(label: String, initial: Boolean, onChange: (Boolean) -> U
             checked = it
             onChange(it)
         })
+    }
+}
+
+@Composable
+private fun AutoSendCard(ui: AutoSendUi, actions: MainActions) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Send phone copies automatically", style = MaterialTheme.typography.titleMedium)
+                    Text("For trusted devices · one-time USB setup", style = MaterialTheme.typography.bodySmall)
+                }
+                Switch(checked = ui.enabled, onCheckedChange = actions.onAutoSendChanged)
+            }
+            if (!ui.enabled) {
+                Text(
+                    "Android blocks apps from reading the clipboard in the background. With a one-time grant " +
+                        "from your PC, SeamlessClip can notice each copy and send it with no tap.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                return@Column
+            }
+
+            CheckRow(ui.logPermission, "Log access granted from PC (one-time)")
+            if (!ui.logPermission) {
+                Text(
+                    "Enable USB debugging (Settings › About phone › tap Build number 7×, then Developer options), " +
+                        "connect to the PC and run tools\\enable-auto-send.ps1 from the repo, or:",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                SelectionContainer {
+                    Text(
+                        AutoCopyWatcher.ADB_SETUP_COMMANDS,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                    )
+                }
+            }
+            CheckRow(ui.overlayPermission, "Display over other apps")
+            if (!ui.overlayPermission) {
+                OutlinedButton(onClick = actions.onOpenOverlaySettings) { Text("Allow display over other apps") }
+            }
+
+            val statusText = when (val s = ui.status) {
+                is AutoCopyStatus.Watching -> if (s.lastCopyAt == null) {
+                    "Watching for copies. Copy something in another app to confirm it works."
+                } else {
+                    "Working · last copy sent " + DateUtils.getRelativeTimeSpanString(s.lastCopyAt)
+                }
+                AutoCopyStatus.NeedsAppOpen ->
+                    "Waiting for log access. If Android asks \"Allow access to all device logs?\", choose Allow."
+                AutoCopyStatus.NeedsLogPermission, AutoCopyStatus.NeedsOverlayPermission -> "Finish the steps above."
+                AutoCopyStatus.Off -> "Starting…"
+            }
+            Text(statusText, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            Text(
+                "Android shows a small \"pasted from your clipboard\" message each time. Copies that password " +
+                    "managers mark as sensitive are never sent.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CheckRow(done: Boolean, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(if (done) "✓" else "✗", modifier = Modifier.width(24.dp), fontWeight = FontWeight.Bold,
+            color = if (done) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+        Text(label, style = MaterialTheme.typography.bodyMedium)
     }
 }
 

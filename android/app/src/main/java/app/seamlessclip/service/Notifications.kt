@@ -9,6 +9,7 @@ import android.content.Intent
 import android.graphics.drawable.Icon
 import android.os.Build
 import app.seamlessclip.R
+import app.seamlessclip.auto.AutoCopyStatus
 import app.seamlessclip.net.ConnectionState
 import app.seamlessclip.share.ClipboardSendActivity
 import app.seamlessclip.ui.MainActivity
@@ -38,9 +39,14 @@ object Notifications {
     }
 
     /** The ongoing foreground-service notification, with a one-tap "Send clipboard" action. */
-    fun status(context: Context, state: ConnectionState): Notification {
+    fun status(context: Context, state: ConnectionState, auto: AutoCopyStatus = AutoCopyStatus.Off): Notification {
         val (title, text) = when (state) {
-            is ConnectionState.Connected -> "Connected to ${state.pcName}" to "Copies on your PC appear here automatically"
+            is ConnectionState.Connected -> "Connected to ${state.pcName}" to when (auto) {
+                is AutoCopyStatus.Watching -> "Copies sync both ways automatically"
+                AutoCopyStatus.NeedsAppOpen -> "Tap to resume automatic phone → PC sending"
+                AutoCopyStatus.Off -> "Copies on your PC appear here automatically"
+                else -> "Automatic sending needs setup – tap to open"
+            }
             is ConnectionState.Connecting -> "Connecting to ${state.pcName}…" to state.host
             is ConnectionState.Disconnected -> "${state.pcName} not reachable" to state.reason
             ConnectionState.NotPaired -> "Not paired" to "Open SeamlessClip to pair with your PC"

@@ -34,8 +34,27 @@ This file is for picking the work back up in a later session. Read it first.
   - [x] JVM unit tests for HKDF (RFC 5869 vector) and SessionCipher
 - [x] CI: Windows single-file exe + Android debug APK as build artifacts
 
+### Automatic phone → PC (built, needs on-device verification)
+Implemented the ADB-assisted copy detector (opt-in, off by default):
+- `auto/CopyDetector.kt`: matches `Denying clipboard access to app.seamlessclip` lines, with debounce (unit-tested)
+- `auto/AutoCopyWatcher.kt`: long-running `logcat -b system,main -T 1 ClipboardService:E *:S`,
+  restarts if logcat dies, and exposes a status for the UI and notification
+- `auto/ClipboardGrabber.kt`: a 1×1 focusable `TYPE_APPLICATION_OVERLAY` window that reads the clipboard
+  on focus, then removes itself. It skips `IS_SENSITIVE` clips. No activity launch, so no background-activity-start limits.
+- `SyncService`: registers the clipboard listener (needed so the system logs a denial), handles echo suppression
+- UI: an "Send phone copies automatically" card with a permission checklist and live status
+- `tools/enable-auto-send.ps1` / `.sh`: one-time adb grant
+
+**Verify on the Pixel (unknowns I couldn't test in the cloud):**
+- [ ] The denial line is still logged for background *listeners* on the Pixel's Android version (KDE Connect relies on it).
+- [ ] Android 13+ log-access consent: the dialog should appear when the watcher starts while the app is open.
+      After reboot the service starts in the background, so its logcat may be silently limited to our own logs
+      (status "NeedsAppOpen"); opening the app restarts it. Check whether the consent persists.
+- [ ] The focusable overlay gets window focus on Android 15/16, and doesn't disturb typing noticeably.
+- [ ] Battery impact of the idle logcat process (it should be negligible, since logd does the filtering).
+
 ### Next steps (in order)
-1. **Decide on automatic phone → PC sync** (see "Automatic phone → PC" below) and build it.
+1. **On-device test of automatic sending** (checklist above).
 2. **Commit the Gradle wrapper.** Run `gradle wrapper --gradle-version 8.10.2` in `android/` and commit
    `gradlew`, `gradlew.bat` and `gradle/wrapper/gradle-wrapper.jar`, then switch CI to `./gradlew`.
 3. **Manual end-to-end test** on the real Pixel and laptop: pairing, PC→phone while the phone is locked,
@@ -45,7 +64,7 @@ This file is for picking the work back up in a later session. Read it first.
 ### Known gaps / ideas for later
 - **Automatic phone → PC sync in the background.** Android 10+ lets only the focused app or the
   default keyboard read the clipboard. Options, best first:
-  1. *ADB-assisted "copy detector"* (the KDE Connect approach): a one-time
+  1. ✅ *built, see above.* *ADB-assisted "copy detector"* (the KDE Connect approach): a one-time
      `adb shell pm grant app.seamlessclip android.permission.READ_LOGS` plus the "display over other
      apps" permission. The service registers a clipboard listener; Android logs
      `Denying clipboard access to app.seamlessclip` on every copy; the service sees that line in logcat

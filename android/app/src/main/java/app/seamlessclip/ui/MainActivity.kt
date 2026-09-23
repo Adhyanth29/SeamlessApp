@@ -17,6 +17,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.seamlessclip.auto.AutoCopyWatcher
 import app.seamlessclip.data.AppPrefs
 import app.seamlessclip.data.PairingInfo
 import app.seamlessclip.data.PairingStore
@@ -35,6 +36,9 @@ class MainActivity : ComponentActivity() {
     private val pendingPairing = mutableStateOf<PairingInfo?>(null)
     private var pendingFromClipboard = false
     private val batteryUnrestricted = mutableStateOf(true)
+    private val autoSendEnabled = mutableStateOf(false)
+    private val logPermission = mutableStateOf(false)
+    private val overlayPermission = mutableStateOf(false)
 
     private val scanLauncher = registerForActivityResult(ScanContract()) { result ->
         result.contents?.let(::offerPairing)
@@ -62,12 +66,19 @@ class MainActivity : ComponentActivity() {
             SeamlessClipTheme {
                 val state by SyncHub.state.collectAsStateWithLifecycle()
                 val history by SyncHub.history.collectAsStateWithLifecycle()
+                val autoStatus by AutoCopyWatcher.status.collectAsStateWithLifecycle()
                 MainScreen(
                     state = state,
                     history = history,
                     pairedPcName = pairedPcName.value,
                     prefs = prefs,
                     batteryUnrestricted = batteryUnrestricted.value,
+                    autoSend = AutoSendUi(
+                        enabled = autoSendEnabled.value,
+                        logPermission = logPermission.value,
+                        overlayPermission = overlayPermission.value,
+                        status = autoStatus,
+                    ),
                     actions = MainActions(
                         onScan = ::startScan,
                         onPasteLink = ::pastePairingLink,
@@ -76,6 +87,8 @@ class MainActivity : ComponentActivity() {
                         onReconnect = { SyncService.start(this, SyncService.ACTION_RECONNECT) },
                         onStop = { SyncService.stop(this) },
                         onAllowBackground = ::requestBatteryExemption,
+                        onAutoSendChanged = ::setAutoSend,
+                        onOpenOverlaySettings = ::openOverlaySettings,
                     ),
                 )
                 pendingPairing.value?.let { info ->
@@ -98,6 +111,24 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         batteryUnrestricted.value = getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
+        autoSendEnabled.value = prefs.autoSendFromPhone
+        logPermission.value = AutoCopyWatcher.hasLogPermission(this)
+        overlayPermission.value = Settings.canDrawOverlays(this)
+        // Being on screen is the only time Android 13+ can ask for log-access consent, so (re)start
+        // the copy watcher now if it's enabled.
+        if (prefs.autoSendFromPhone && pairedPcName.value != null) SyncService.refreshAutoCopy(this, inForeground = true)
+    }
+
+    // ---- Automatic phone → PC ------------------------------------------
+
+    private fun setAutoSend(enabled: Boolean) {
+        prefs.autoSendFromPhone = enabled
+        autoSendEnabled.value = enabled
+        SyncService.refreshAutoCopy(this, inForeground = true)
+    }
+
+    private fun openOverlaySettings() {
+        startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
     }
 
     private fun handleIntent(intent: Intent?) {

@@ -19,6 +19,14 @@ class AppPrefs(context: Context) {
         get() = prefs.getBoolean("notify_on_receive", true)
         set(value) = prefs.edit().putBoolean("notify_on_receive", value).apply()
 
+    /**
+     * Send phone copies to the PC automatically (no tap). Needs the one-time ADB grant, see
+     * AutoCopyWatcher. Off by default: it lets the app read system logs, so it's for trusted devices.
+     */
+    var autoSendFromPhone: Boolean
+        get() = prefs.getBoolean("auto_send_from_phone", false)
+        set(value) = prefs.edit().putBoolean("auto_send_from_phone", value).apply()
+
     /** Start the sync service after reboot / app update. */
     var startOnBoot: Boolean
         get() = prefs.getBoolean("start_on_boot", true)
